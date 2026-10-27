@@ -104,7 +104,7 @@ final class SessionController: ObservableObject {
         fpsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                framesPerSecond = framebuffer.takeFrameCount()
+                self.framesPerSecond = self.framebuffer.takeFrameCount()
             }
         }
     }
