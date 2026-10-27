@@ -15,6 +15,8 @@ final class RFBClient {
     private var stopped = false
     private var connected = false
     private var extendedKeysSupported = false
+    /// Server pushes frames as they're captured instead of waiting for requests.
+    private var continuousUpdates = false
     private var shiftDown = false
     private var lastPointer: (x: Int, y: Int) = (0, 0)
     private(set) var width = 0
@@ -277,7 +279,7 @@ final class RFBClient {
         switch config.serverKind {
         case .pikvm:
             encodings = [RFBEncoding.tight, RFBEncoding.jpegQuality(config.jpegQuality),
-                         RFBEncoding.copyRect, RFBEncoding.raw]
+                         RFBEncoding.copyRect, RFBEncoding.raw, RFBEncoding.continuousUpdates]
         case .generic:
             encodings = [RFBEncoding.copyRect, RFBEncoding.raw]
         }
@@ -307,8 +309,8 @@ final class RFBClient {
                 _ = try read(t, 3)
                 let text = try readString(t, maxLength: 8 << 20)
                 DispatchQueue.main.async { self.delegate?.rfbClient(self, didReceiveClipboard: text) }
-            case 150:  // EndOfContinuousUpdates
-                break
+            case 150:  // EndOfContinuousUpdates: the server supports continuous updates
+                enableContinuousUpdates()
             default:
                 throw RFBError.protocolError("Unknown server message \(type).")
             }
@@ -356,7 +358,22 @@ final class RFBClient {
             }
         }
         sink?.rfbUpdateComplete()
-        requestUpdate(incremental: true)
+        lock.lock()
+        let continuous = continuousUpdates
+        lock.unlock()
+        if !continuous { requestUpdate(incremental: true) }
+    }
+
+    private func enableContinuousUpdates() {
+        lock.lock()
+        let already = continuousUpdates
+        continuousUpdates = true
+        lock.unlock()
+        guard !already else { return }
+        var msg = Data([150, 1])
+        msg.appendU16(0); msg.appendU16(0)
+        msg.appendU16(UInt16(clamping: width)); msg.appendU16(UInt16(clamping: height))
+        send(msg)
     }
 
     private func resize(width w: Int, height h: Int) {

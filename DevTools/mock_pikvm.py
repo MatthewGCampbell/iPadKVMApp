@@ -74,7 +74,18 @@ def handle(conn, args):
                              32, 24, False, True, 255, 255, 255, 16, 8, 0, len(name)) + name)
 
     lock = threading.Lock()
-    frames_sent = 0
+    state = {"frames": 0, "continuous": False}
+
+    def send_frame():
+        # Like kvmd: three frames total, with a resolution change before the second.
+        if state["frames"] >= 3:
+            return
+        state["frames"] += 1
+        with lock:
+            if state["frames"] == 2:
+                conn.sendall(struct.pack(">BxH HHHHl", 0, 1, 0, 0, 1280, 720, -223))
+            conn.sendall(jpeg_update(args.width, args.height, FAKE_JPEG))
+
     while True:
         msg_type = recv_exact(conn, 1)[0]
         if msg_type == 0:
@@ -85,19 +96,17 @@ def handle(conn, args):
             (count,) = struct.unpack(">xH", recv_exact(conn, 3))
             encodings = list(struct.unpack(">" + "l" * count, recv_exact(conn, 4 * count)))
             log(event="set_encodings", encodings=encodings)
+            if -313 in encodings:
+                with lock:
+                    conn.sendall(bytes([150]))  # kvmd: "allow ContUpdates"
             if -258 in encodings:
                 with lock:
                     conn.sendall(struct.pack(">BxH HHHHl", 0, 1, 0, 0, 0, 0, -258))
         elif msg_type == 3:
             incremental, x, y, w, h = struct.unpack(">?HHHH", recv_exact(conn, 9))
             log(event="fbur", incremental=incremental, w=w, h=h)
-            if frames_sent < 3:
-                frames_sent += 1
-                with lock:
-                    if frames_sent == 2:
-                        # Resize like kvmd does when the source resolution changes.
-                        conn.sendall(struct.pack(">BxH HHHHl", 0, 1, 0, 0, 1280, 720, -223))
-                    conn.sendall(jpeg_update(args.width, args.height, FAKE_JPEG))
+            if not state["continuous"]:
+                send_frame()
         elif msg_type == 4:
             down, keysym = struct.unpack(">?xxL", recv_exact(conn, 7))
             log(event="key", down=down, keysym=keysym)
@@ -107,6 +116,13 @@ def handle(conn, args):
         elif msg_type == 6:
             (length,) = struct.unpack(">xxxL", recv_exact(conn, 7))
             log(event="cut_text", text=recv_exact(conn, length).decode("utf-8"))
+        elif msg_type == 150:
+            enabled, x, y, w, h = struct.unpack(">BHHHH", recv_exact(conn, 9))
+            log(event="continuous_updates", enabled=bool(enabled), w=w, h=h)
+            state["continuous"] = bool(enabled)
+            # Push the remaining frames without waiting for requests.
+            for _ in range(3):
+                send_frame()
         elif msg_type == 255:
             sub, down, keysym, code = struct.unpack(">BHLL", recv_exact(conn, 11))
             assert sub == 0

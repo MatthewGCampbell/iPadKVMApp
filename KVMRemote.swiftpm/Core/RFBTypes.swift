@@ -54,6 +54,8 @@ enum RFBError: LocalizedError, Equatable {
     case authenticationFailed(String)
     case unsupported(String)
     case certificateChanged(expected: String, actual: String)
+    /// iPadOS refuses LAN connections until the user allows Local Network access.
+    case localNetworkDenied
 
     var errorDescription: String? {
         switch self {
@@ -65,7 +67,22 @@ enum RFBError: LocalizedError, Equatable {
         case .unsupported(let why): return why
         case .certificateChanged:
             return "The server's TLS certificate has changed since you last connected. If you regenerated the PiKVM certificate, reset the saved certificate in this host's settings."
+        case .localNetworkDenied:
+            return "iPadOS blocked the connection to your local network. If it just asked whether KVM Remote can find devices on your network, tap Allow, then Reconnect. Otherwise turn on Local Network for KVM Remote in Settings › Privacy & Security › Local Network."
         }
+    }
+}
+
+extension RFBError {
+    /// "Network is down" (ENETDOWN, errno 50) is how iPadOS reports a connection
+    /// blocked by the Local Network permission.
+    static func isNetworkDown(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSPOSIXErrorDomain && ns.code == 50 { return true }
+        if ns.domain == "kCFErrorDomainCFNetwork" || ns.domain == "NSStreamSocketSSLErrorDomain",
+           (ns.userInfo["_kCFStreamErrorCodeKey"] as? Int) == 50 { return true }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error { return isNetworkDown(underlying) }
+        return false
     }
 }
 
@@ -98,6 +115,7 @@ enum RFBEncoding {
     static let desktopName: Int32 = -307
     static let qemuExtendedKeys: Int32 = -258
     static let qemuLEDState: Int32 = -261
+    static let continuousUpdates: Int32 = -313
 
     /// JPEG quality pseudo-encodings: -32 (lowest) ... -23 (highest).
     static func jpegQuality(_ level: Int) -> Int32 {

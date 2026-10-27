@@ -211,6 +211,11 @@ struct SessionView: View {
                 HStack {
                     Button("Close") { dismiss() }
                         .buttonStyle(.bordered)
+                    if session.needsLocalNetworkPermission,
+                       let settings = URL(string: UIApplication.openSettingsURLString) {
+                        Button("Open Settings") { UIApplication.shared.open(settings) }
+                            .buttonStyle(.bordered)
+                    }
                     Button("Reconnect") { session.connect() }
                         .buttonStyle(.borderedProminent)
                 }

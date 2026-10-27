@@ -41,6 +41,11 @@ expect(pointer == [(1, 1279, 10), (16, 1279, 10), (0, 1279, 10)], f"pointer clam
 fburs = [e for e in first_session if e["event"] == "fbur"]
 expect(not fburs[0]["incremental"] and all(e["incremental"] for e in fburs[1:]), "first update request is full, the rest incremental")
 
+cont = [i for i, e in enumerate(first_session) if e["event"] == "continuous_updates"]
+expect(len(cont) == 1 and first_session[cont[0]]["enabled"], "enables continuous updates exactly once")
+later_fburs = [e for e in first_session[cont[0]:] if e["event"] == "fbur"]
+expect(not later_fburs, f"stops requesting frames once the server pushes them ({len(later_fburs)} extra requests)")
+
 second = events[len(first_session):]
 expect(any(e["event"] == "auth" and e["password"] == "wrong" for e in second), "second session tried the wrong password")
 print("ALL SERVER CHECKS PASSED")

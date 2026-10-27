@@ -25,7 +25,8 @@ final class RemoteScreenView: UIView, UIPointerInteractionDelegate {
 
         screenLayer.contentsGravity = .resize
         screenLayer.magnificationFilter = .linear
-        screenLayer.minificationFilter = .trilinear
+        // Trilinear would rebuild mipmaps for every video frame.
+        screenLayer.minificationFilter = .linear
         screenLayer.backgroundColor = UIColor.black.cgColor
         layer.addSublayer(screenLayer)
 

@@ -26,11 +26,17 @@ extension Data {
 final class ByteQueue {
     private let condition = NSCondition()
     private var buffer = Data()
+    /// Bytes before this index have been consumed; compacted lazily.
+    private var readIndex = 0
     private var closedError: Error?
     private var isClosed = false
 
     func append(_ data: Data) {
         condition.lock()
+        if readIndex > 0 && readIndex >= buffer.count / 2 {
+            buffer = Data(buffer[(buffer.startIndex + readIndex)...])
+            readIndex = 0
+        }
         buffer.append(data)
         condition.broadcast()
         condition.unlock()
@@ -50,18 +56,23 @@ final class ByteQueue {
     func read(exactly count: Int, deadline: Date?) throws -> Data {
         condition.lock()
         defer { condition.unlock() }
-        while buffer.count < count {
+        while buffer.count - readIndex < count {
             if isClosed { throw closedError ?? RFBError.connectionClosed }
             if let deadline {
-                if !condition.wait(until: deadline) && buffer.count < count {
+                if !condition.wait(until: deadline) && buffer.count - readIndex < count {
                     throw RFBError.timeout
                 }
             } else {
                 condition.wait()
             }
         }
-        let out = Data(buffer.prefix(count))
-        buffer = Data(buffer.dropFirst(count))
+        let start = buffer.startIndex + readIndex
+        let out = Data(buffer[start..<(start + count)])
+        readIndex += count
+        if readIndex == buffer.count {
+            buffer.removeAll(keepingCapacity: true)
+            readIndex = 0
+        }
         return out
     }
 }

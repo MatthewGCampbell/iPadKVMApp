@@ -21,6 +21,14 @@ final class Framebuffer: RFBFramebufferSink {
     private var dirty = false
     private var displayPending = false
     private var frameCounter = 0
+
+    // Full-screen JPEGs are decoded off the network thread, newest first: if decoding
+    // falls behind, older frames are skipped instead of queueing up as lag.
+    private let decodeQueue = DispatchQueue(label: "KVMRemote.jpeg-decode", qos: .userInteractive)
+    private var pendingJPEG: (data: Data, sequence: Int)?
+    private var decodeScheduled = false
+    private var nextSequence = 0
+    private var shownSequence = -1
     private(set) var width = 0
     private(set) var height = 0
 
@@ -62,30 +70,85 @@ final class Framebuffer: RFBFramebufferSink {
         context = makeContext(width: width, height: height)
         fullFrame = nil
         contextIsStale = false
+        pendingJPEG = nil
+        shownSequence = nextSequence
         lock.unlock()
         onResize?(width, height)
     }
 
     func rfbJPEG(_ data: Data, x: Int, y: Int, width w: Int, height h: Int) {
-        // Decode before taking the lock so the UI never waits on JPEG decoding.
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(
-                source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
-        else { return }
+        lock.lock()
+        if x == 0 && y == 0 && w == width && h == height {
+            // PiKVM's path: hand off and get back to reading the network immediately.
+            nextSequence += 1
+            pendingJPEG = (data, nextSequence)
+            let schedule = !decodeScheduled
+            decodeScheduled = true
+            lock.unlock()
+            if schedule { decodeQueue.async { [weak self] in self?.decodeLoop() } }
+            return
+        }
+        lock.unlock()
 
+        // Partial rectangles must be applied in order, so decode inline.
+        flushPendingFrame()
+        guard let image = Self.decode(data) else { return }
         lock.lock()
         defer { lock.unlock() }
-        if x == 0 && y == 0 && w == width && h == height {
-            fullFrame = image
-            contextIsStale = true
-        } else {
-            syncContext()
-            context?.draw(image, in: cgRect(x, y, w, h))
-        }
+        syncContext()
+        context?.draw(image, in: cgRect(x, y, w, h))
         dirty = true
     }
 
+    private static func decode(_ data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+    }
+
+    private func decodeLoop() {
+        while true {
+            lock.lock()
+            guard let job = pendingJPEG else {
+                decodeScheduled = false
+                lock.unlock()
+                return
+            }
+            pendingJPEG = nil
+            lock.unlock()
+
+            guard let image = Self.decode(job.data) else { continue }
+            if install(image, sequence: job.sequence) { onUpdate?() }
+        }
+    }
+
+    /// Makes `image` the current full frame unless something newer is already shown.
+    /// Returns whether the UI should be told.
+    private func install(_ image: CGImage, sequence: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard sequence > shownSequence else { return false }
+        shownSequence = sequence
+        fullFrame = image
+        contextIsStale = true
+        frameCounter += 1
+        guard !displayPending else { return false }
+        displayPending = true
+        return true
+    }
+
+    /// Before a partial update, apply any full frame still waiting to be decoded.
+    private func flushPendingFrame() {
+        lock.lock()
+        let job = pendingJPEG
+        pendingJPEG = nil
+        lock.unlock()
+        if let job, let image = Self.decode(job.data) {
+            _ = install(image, sequence: job.sequence)
+        }
+    }
+
     func rfbFill(x: Int, y: Int, width w: Int, height h: Int, red: UInt8, green: UInt8, blue: UInt8) {
+        flushPendingFrame()
         lock.lock()
         defer { lock.unlock() }
         syncContext()
@@ -104,6 +167,7 @@ final class Framebuffer: RFBFramebufferSink {
                                   provider: provider, decode: nil, shouldInterpolate: false,
                                   intent: .defaultIntent)
         else { return }
+        flushPendingFrame()
         lock.lock()
         defer { lock.unlock() }
         syncContext()
@@ -113,6 +177,7 @@ final class Framebuffer: RFBFramebufferSink {
     }
 
     func rfbCopy(srcX: Int, srcY: Int, x: Int, y: Int, width w: Int, height h: Int) {
+        flushPendingFrame()
         lock.lock()
         defer { lock.unlock() }
         syncContext()

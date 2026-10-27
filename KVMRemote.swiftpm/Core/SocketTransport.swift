@@ -47,29 +47,32 @@ final class SocketTransport: RFBTransport {
         defer { freeaddrinfo(first) }
 
         var lastError = "no addresses"
+        var networkDown = false
         var cursor: UnsafeMutablePointer<addrinfo>? = first
         while let ai = cursor {
             cursor = ai.pointee.ai_next
             let s = socket(ai.pointee.ai_family, ai.pointee.ai_socktype, ai.pointee.ai_protocol)
             if s < 0 { continue }
-            if connectWithTimeout(s, ai.pointee.ai_addr, ai.pointee.ai_addrlen, timeout, &lastError) {
+            if connectWithTimeout(s, ai.pointee.ai_addr, ai.pointee.ai_addrlen, timeout, &lastError, &networkDown) {
                 configure(s)
                 fd = s
                 return
             }
             _ = systemClose(s)
         }
+        if networkDown { throw RFBError.localNetworkDenied }
         throw RFBError.connectionFailed("\(host):\(port) — \(lastError)")
     }
 
     private func connectWithTimeout(_ s: Int32, _ addr: UnsafeMutablePointer<sockaddr>?, _ len: socklen_t,
-                                    _ timeout: TimeInterval, _ error: inout String) -> Bool {
+                                    _ timeout: TimeInterval, _ error: inout String, _ networkDown: inout Bool) -> Bool {
         let flags = fcntl(s, F_GETFL, 0)
         _ = fcntl(s, F_SETFL, flags | O_NONBLOCK)
         defer { _ = fcntl(s, F_SETFL, flags) }
 
         if systemConnect(s, addr, len) == 0 { return true }
         guard errno == EINPROGRESS else {
+            if errno == ENETDOWN { networkDown = true }
             error = String(cString: strerror(errno))
             return false
         }
@@ -83,6 +86,7 @@ final class SocketTransport: RFBTransport {
         var soLen = socklen_t(MemoryLayout<Int32>.size)
         getsockopt(s, SOL_SOCKET, SO_ERROR, &soError, &soLen)
         if soError != 0 {
+            if soError == ENETDOWN { networkDown = true }
             error = String(cString: strerror(soError))
             return false
         }

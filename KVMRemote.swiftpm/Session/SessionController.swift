@@ -25,6 +25,8 @@ final class SessionController: ObservableObject {
     @Published var recognizedText: RecognizedText?
     @Published var isSelectingText = false
     @Published private(set) var isRecognizingText = false
+    /// The last disconnect was iPadOS blocking Local Network access.
+    @Published private(set) var needsLocalNetworkPermission = false
     @Published var softKeyboardVisible = false {
         didSet { screenView?.setSoftKeyboardVisible(softKeyboardVisible) }
     }
@@ -270,6 +272,7 @@ extension SessionController: RFBClientDelegate {
             self.client = nil
             fpsTimer?.invalidate()
             keys.releaseAll()
+            needsLocalNetworkPermission = (error as? RFBError) == .localNetworkDenied
             phase = .disconnected(error?.localizedDescription)
         }
     }

@@ -69,6 +69,7 @@ final class StreamTransport: NSObject, RFBTransport, StreamDelegate {
         stateLock.unlock()
         if let error {
             close()
+            if RFBError.isNetworkDown(error) { throw RFBError.localNetworkDenied }
             throw RFBError.connectionFailed("\(host):\(port) — \(error.localizedDescription)")
         }
     }
@@ -153,7 +154,10 @@ final class StreamTransport: NSObject, RFBTransport, StreamDelegate {
     func stream(_ stream: Stream, handle event: Stream.Event) {
         switch event {
         case .openCompleted:
-            if stream === output { signalOpen(nil) }
+            if stream === output {
+                disableNagle()
+                signalOpen(nil)
+            }
         case .hasBytesAvailable:
             readAvailable()
         case .hasSpaceAvailable:
@@ -165,6 +169,17 @@ final class StreamTransport: NSObject, RFBTransport, StreamDelegate {
         default:
             break
         }
+    }
+
+    /// Without TCP_NODELAY, small packets (key presses, pointer moves) can sit in the
+    /// kernel for up to ~200 ms waiting to be batched — very visible as input lag.
+    private func disableNagle() {
+        let key = Stream.PropertyKey(kCFStreamPropertySocketNativeHandle as String)
+        guard let handle = output?.property(forKey: key) as? Data,
+              handle.count >= MemoryLayout<Int32>.size else { return }
+        let fd = handle.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
+        var one: Int32 = 1
+        setsockopt(fd, Int32(IPPROTO_TCP), TCP_NODELAY, &one, socklen_t(MemoryLayout<Int32>.size))
     }
 
     private func readAvailable() {
