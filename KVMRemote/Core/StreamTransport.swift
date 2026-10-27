@@ -174,9 +174,7 @@ final class StreamTransport: NSObject, RFBTransport, StreamDelegate {
     /// Without TCP_NODELAY, small packets (key presses, pointer moves) can sit in the
     /// kernel for up to ~200 ms waiting to be batched — very visible as input lag.
     private func disableNagle() {
-        // Unlike the SSL keys, this one is imported as an optional CFStreamPropertyKey.
-        guard let cfKey = kCFStreamPropertySocketNativeHandle else { return }
-        let key = Stream.PropertyKey(rawValue: cfKey.rawValue as String)
+        let key = Stream.PropertyKey(rawValue: CFStreamPropertyKey.socketNativeHandle.rawValue as String)
         guard let handle = output?.property(forKey: key) as? Data,
               handle.count >= MemoryLayout<Int32>.size else { return }
         let fd = handle.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
