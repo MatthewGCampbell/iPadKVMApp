@@ -362,7 +362,7 @@ final class SoftKeyboardField: UIView, UIKeyInput {
             stack.addArrangedSubview(button)
             return button
         }
-        let tap: (UInt16) -> () -> Void = { usage in { [weak self] in self?.screen?.session?.keys.tap(usage) } }
+        let tap: (UInt16) -> () -> Void = { [weak self] usage in { self?.screen?.session?.keys.tap(usage) } }
 
         _ = key("esc", tap(HIDUsage.escape))
         _ = key("tab", tap(HIDUsage.tab))
