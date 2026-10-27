@@ -141,6 +141,12 @@ final class SessionController: ObservableObject {
         client?.sendPointer(x: Int(point.x), y: Int(point.y), buttons: heldButtons)
     }
 
+    /// Sets the full mouse button state (mouse/trackpad), moving there first.
+    func setMouseButtons(_ buttons: PointerButtons, at point: CGPoint) {
+        heldButtons = buttons
+        client?.sendPointer(x: Int(point.x), y: Int(point.y), buttons: buttons)
+    }
+
     func click(at point: CGPoint, button: PointerButtons) {
         pointerMoved(to: point)
         pointer(at: point, button: button, down: true)

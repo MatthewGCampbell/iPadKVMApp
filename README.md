@@ -9,7 +9,7 @@ An iPad app for controlling a computer through a **PiKVM** over VNC. It's built 
 - **No stuck keys.** Keys pressed while ⌘ is down are sent as quick taps, and everything is released when you switch away from the app.
 - **Clipboard, iPad → Mac:** press **⌃⌘V** (or use the clipboard button). PiKVM types the iPad's clipboard text wherever the Mac's cursor is.
 - **Clipboard, Mac → iPad:** *Copy Text from Screen Area* lets you drag a box over text on the remote screen. On-device OCR reads it and puts it on the iPad clipboard.
-- **Trackpad and mouse:** the iPad pointer drives the remote's pointer directly (absolute positioning, so there's no drift). Click, right-click and two-finger scroll all work.
+- **Trackpad and mouse:** the iPad pointer drives the remote's pointer directly (absolute positioning, so there's no drift). Buttons press and release exactly when you do, so click-and-hold, drags and right-click work like a real mouse, along with two-finger scrolling.
 - **Touch:** tap to click, two-finger tap to right-click, drag with one finger to click-and-drag, scroll with two fingers.
 - **On-screen keyboard** for when there's no hardware keyboard, with a bar of Esc, ⌘, ⌥, ⌃, ⇧ and arrow keys.
 - **TLS encryption** (PiKVM's default VeNCrypt X.509). The server's certificate is remembered on first connect and you get a warning if it ever changes. The password is kept in the Keychain.
@@ -44,31 +44,31 @@ In the app, tap **+** and fill in:
 
 ## Building and installing
 
-The app is a Swift Playgrounds app package (`KVMRemote.swiftpm`), which works with both tools below. It needs iPadOS 17 or later.
+Open **`KVMRemote.xcodeproj`** in Xcode 16 or later (Xcode 26 recommended). The app needs iPadOS 17 or later.
 
-**With a Mac (Xcode 15 or later):**
+1. In the project navigator, select **KVMRemote** › target **KVMRemote** › **Signing & Capabilities**, and pick your **Team**. If Xcode says the bundle identifier is taken, change `com.matthewcampbell.KVMRemote` to something unique.
+2. Plug in the iPad, trust the Mac, and turn on **Developer Mode** (Settings › Privacy & Security) if asked.
+3. Choose the iPad as the run destination and press **Run** (⌘R).
 
-1. Open `KVMRemote.swiftpm` in Xcode.
-2. Under *Signing & Capabilities*, pick your team. A free Apple ID works, but the app then has to be reinstalled every 7 days.
-3. Connect the iPad, select it as the run destination, and press Run.
+With a free Apple ID, apps installed this way stop working after 7 days and need to be run from Xcode again. With a paid Apple Developer membership they last a year, and you can use **Product › Archive** to send builds to TestFlight.
 
-**On the iPad with Swift Playgrounds:**
+The shared scheme runs the **Release** configuration, because Debug builds feel noticeably slower when streaming video. To debug with breakpoints, choose Product › Scheme › Edit Scheme › Run and switch to Debug.
 
-1. Copy the `KVMRemote.swiftpm` folder to the iPad (iCloud Drive or Files).
-2. Open it in Swift Playgrounds and tap Run.
-
-   While the app runs *inside* Playgrounds, Playgrounds may grab some ⌘ shortcuts itself. Playgrounds can also upload the app to App Store Connect, so you can install it as a standalone app through TestFlight.
-
-Before the first build, change `bundleIdentifier` in `KVMRemote.swiftpm/Package.swift` to something unique, such as `com.yourname.kvmremote`.
+Press **⌘U** to run the unit tests: keyboard routing, ⌘ shortcut handling and the scancode table.
 
 ## Project layout
 
 ```
-KVMRemote.swiftpm/
-  Core/      VNC protocol, transports (plain TCP and TLS), key mapping and keyboard logic
-  Session/   Remote screen view, input capture, toolbar, framebuffer, OCR
-  App/       Host list, host settings, help, saved hosts and Keychain
-DevTools/    Mock PiKVM server and an end-to-end test of Core/ (runs on Linux or macOS)
+KVMRemote.xcodeproj
+KVMRemote/
+  App/        Host list, host settings, help, saved hosts and Keychain
+  Core/       VNC protocol, transports (plain TCP and TLS), key mapping and keyboard logic
+  Session/    Remote screen view, input capture, toolbar, framebuffer, OCR
+  Assets.xcassets
+KVMRemoteTests/  XCTest unit tests
+DevTools/        Mock PiKVM server and an end-to-end protocol test (runs on Linux or macOS)
 ```
+
+The Xcode project uses folder-synced groups, so new files you add under `KVMRemote/` are picked up automatically.
 
 `DevTools/run_core_test.sh` compiles `Core/` with `swiftc` and runs it against `mock_pikvm.py`. The mock follows the same wire protocol as PiKVM's `kvmd-vnc`: VeNCrypt login, Tight-JPEG frames, resolution changes, extended key events and clipboard text. The test checks the exact key sequences sent for ⌘C, ⌘Space, ⌥Tab, ⌃⌘V and typed text.

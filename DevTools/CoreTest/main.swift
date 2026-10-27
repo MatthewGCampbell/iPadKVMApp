@@ -1,5 +1,5 @@
 // End-to-end test of the app's protocol core against DevTools/mock_pikvm.py.
-// Builds on Linux with the files in KVMRemote.swiftpm/Core; see DevTools/run_core_test.sh.
+// Builds on Linux with the files in KVMRemote/Core; see DevTools/run_core_test.sh.
 import Foundation
 
 final class Recorder: RFBClientDelegate, RFBFramebufferSink {

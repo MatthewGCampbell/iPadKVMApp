@@ -2,4 +2,4 @@
 xcuserdata/
 *.xcuserstate
 .build/
-KVMRemote.swiftpm/.swiftpm/xcode/
+DerivedData/

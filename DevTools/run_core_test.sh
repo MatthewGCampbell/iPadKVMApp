@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 build="${TMPDIR:-/tmp}/kvmremote-core-test"
 mkdir -p "$build"
 
-swiftc -O -o "$build/coretest" ../KVMRemote.swiftpm/Core/*.swift CoreTest/main.swift
+swiftc -O -o "$build/coretest" ../KVMRemote/Core/*.swift CoreTest/main.swift
 
 python3 mock_pikvm.py --port 5901 > "$build/server.log" &
 server=$!

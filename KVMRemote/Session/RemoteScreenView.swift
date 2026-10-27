@@ -202,24 +202,28 @@ final class RemoteScreenView: UIView, UIPointerInteractionDelegate {
         let hover = UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:)))
         addGestureRecognizer(hover)
 
-        let click = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
-        addGestureRecognizer(click)
+        // Finger gestures only. Mouse and trackpad buttons arrive as indirect-pointer
+        // touches and are handled directly in touchesBegan/Ended below.
+        let fingers = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
 
-        let secondaryClick = UITapGestureRecognizer(target: self, action: #selector(rightClicked(_:)))
-        secondaryClick.buttonMaskRequired = .secondary
-        addGestureRecognizer(secondaryClick)
+        let click = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+        click.allowedTouchTypes = fingers
+        addGestureRecognizer(click)
 
         let twoFingerTap = UITapGestureRecognizer(target: self, action: #selector(rightClicked(_:)))
         twoFingerTap.numberOfTouchesRequired = 2
+        twoFingerTap.allowedTouchTypes = fingers
         addGestureRecognizer(twoFingerTap)
 
         let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
         drag.maximumNumberOfTouches = 1
+        drag.allowedTouchTypes = fingers
         addGestureRecognizer(drag)
 
         let twoFingerScroll = UIPanGestureRecognizer(target: self, action: #selector(scrolled(_:)))
         twoFingerScroll.minimumNumberOfTouches = 2
         twoFingerScroll.maximumNumberOfTouches = 2
+        twoFingerScroll.allowedTouchTypes = fingers
         addGestureRecognizer(twoFingerScroll)
 
         // Trackpad two-finger scrolling and mouse wheels (no touches involved).
@@ -227,6 +231,48 @@ final class RemoteScreenView: UIView, UIPointerInteractionDelegate {
         wheel.allowedScrollTypesMask = .all
         wheel.allowedTouchTypes = []
         addGestureRecognizer(wheel)
+    }
+
+    // MARK: Mouse & trackpad buttons
+
+    /// Press and release exactly when the physical button does, so press-and-hold,
+    /// tiny drags and right-drags behave like a real mouse on the remote.
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let touch = touches.first(where: { $0.type == .indirectPointer }) {
+            focusKeyboard()
+            session?.setMouseButtons(Self.buttons(from: event?.buttonMask), at: remotePoint(touch.location(in: self)))
+        }
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let touch = touches.first(where: { $0.type == .indirectPointer }) {
+            session?.setMouseButtons(Self.buttons(from: event?.buttonMask), at: remotePoint(touch.location(in: self)))
+        }
+        super.touchesMoved(touches, with: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let touch = touches.first(where: { $0.type == .indirectPointer }) {
+            session?.setMouseButtons([], at: remotePoint(touch.location(in: self)))
+        }
+        super.touchesEnded(touches, with: event)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let touch = touches.first(where: { $0.type == .indirectPointer }) {
+            session?.setMouseButtons([], at: remotePoint(touch.location(in: self)))
+        }
+        super.touchesCancelled(touches, with: event)
+    }
+
+    private static func buttons(from mask: UIEvent.ButtonMask?) -> PointerButtons {
+        guard let mask else { return .left }
+        var buttons: PointerButtons = []
+        if mask.contains(.primary) { buttons.insert(.left) }
+        if mask.contains(.secondary) { buttons.insert(.right) }
+        if mask.contains(.button(3)) { buttons.insert(.middle) }
+        return buttons.isEmpty ? .left : buttons
     }
 
     @objc private func hovered(_ g: UIHoverGestureRecognizer) {
